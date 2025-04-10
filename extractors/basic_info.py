@@ -2,9 +2,25 @@ import re
 import fitz  # PyMuPDF
 
 def extract_text_from_pdf(file_path):
+    """Extract text from PDF with enhanced handling of text blocks"""
+    text_blocks = []
+    
     with fitz.open(file_path) as doc:
-        text = "\n".join(page.get_text() for page in doc)
-    return text
+        for page in doc:
+            # Get text with more layout preservation
+            blocks = page.get_text("blocks")
+            for block in blocks:
+                # Each block is (x0, y0, x1, y1, "text", block_no, block_type)
+                text_blocks.append(block[4])
+    
+    # Join all text blocks with space in between
+    full_text = "\n".join(text_blocks)
+    
+    # Clean up multiple newlines and spaces
+    full_text = re.sub(r'\n{3,}', '\n\n', full_text)
+    full_text = re.sub(r' {2,}', ' ', full_text)
+    
+    return full_text
 
 def get_email_prefix(email):
     return email.split('@')[0]
@@ -71,13 +87,33 @@ def extract_email(text):
     return match.group(0) if match else None
 
 def extract_phone(text):
-    match = re.search(r'\+?\d[\d\s\-()]{8,}\d', text)
-    if match:
-        phone = re.sub(r'\D', '', match.group(0))  # Remove all non-digit characters
-        if len(phone) == 10:
-            return phone
-        elif len(phone) > 10:
-            return phone[-10:]  # Strip to last 10 digits
+    """Extract phone numbers from text with better handling of PDF formatting
+    and standardize to 10 digits by removing country code if needed"""
+    
+    # Clean the text to handle potential PDF formatting issues
+    cleaned_text = re.sub(r'\s+', ' ', text)
+    
+    # Try multiple patterns from specific to general
+    patterns = [
+        r'\+\d{1,3}[-\s]?\d{5,12}',              # International format: +91-7906862379
+        r'\+?\d{1,3}[-\s]?\d{3,4}[-\s]?\d{3,4}', # Format with separators
+        r'\d{10,12}',                            # Just digits (10-12 digits)
+        r'\+?\d[\d\s\-()\n]{8,}\d'               # Flexible pattern as fallback
+    ]
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, cleaned_text)
+        if matches:
+            # Clean the match to remove non-digits
+            raw_phone = re.sub(r'\D', '', matches[0])
+            
+            # Standardize: if more than 10 digits, assume country code and remove it
+            if len(raw_phone) > 10:
+                # Keep only the last 10 digits
+                return raw_phone[-10:]
+            else:
+                return raw_phone
+    
     return None
 
 def extract_name(text, email):
